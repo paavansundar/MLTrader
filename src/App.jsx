@@ -55,76 +55,116 @@ const NSE_TOP_50 = [
   { symbol: 'VEDL.NS', name: 'Vedanta Ltd', sector: 'Mining' }
 ];
 
-// Fetch stock data using Yahoo Finance via different methods
-const fetchWithTimeout = async (url, timeout = 3000) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-  try {
-    const response = await fetch(url, { 
-      signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      }
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (e) {
-    clearTimeout(timeoutId);
-    throw e;
-  }
+// Check if NSE market is open (IST: 9:15 AM - 3:30 PM, Mon-Fri)
+const isMarketOpen = () => {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(now.getTime() + istOffset + now.getTimezoneOffset() * 60 * 1000);
+  
+  const day = istTime.getDay();
+  const hours = istTime.getHours();
+  const minutes = istTime.getMinutes();
+  const timeInMinutes = hours * 60 + minutes;
+  
+  const marketOpen = 9 * 60 + 15;
+  const marketClose = 15 * 60 + 30;
+  
+  return day >= 1 && day <= 5 && timeInMinutes >= marketOpen && timeInMinutes <= marketClose;
 };
 
-// Generate realistic stock data based on sector patterns
-const generateRealisticStockData = (stock, index) => {
-  const basePrice = {
-    'Oil & Gas': 2500 + Math.random() * 500,
-    'IT': 1500 + Math.random() * 2000,
-    'Banking': 800 + Math.random() * 1200,
-    'FMCG': 2000 + Math.random() * 3000,
-    'Telecom': 1000 + Math.random() * 500,
-    'Infrastructure': 3000 + Math.random() * 500,
-    'Automobile': 8000 + Math.random() * 4000,
-    'Pharma': 1000 + Math.random() * 500,
-    'Consumer': 2500 + Math.random() * 1000,
-    'NBFC': 6000 + Math.random() * 2000,
-    'Cement': 8000 + Math.random() * 3000,
-    'Power': 300 + Math.random() * 100,
-    'Metals': 500 + Math.random() * 200,
-    'Conglomerate': 2500 + Math.random() * 1000,
-    'Mining': 400 + Math.random() * 100,
-    'Insurance': 600 + Math.random() * 300,
-    'Healthcare': 5000 + Math.random() * 2000,
-  }[stock.sector] || 1000 + Math.random() * 1000;
-
-  const changePercent = (Math.random() - 0.45) * 6; // Slight bullish bias
-  const price = Math.round(basePrice * 100) / 100;
-  const change = Math.round(price * changePercent / 100 * 100) / 100;
+// Fetch real-time price from Yahoo Finance (only source - no fallbacks)
+const fetchStockData = async (stock, index) => {
+  const symbol = stock.symbol.replace('.NS', '');
+  const yahooSymbol = stock.symbol.includes('.NS') ? stock.symbol : `${stock.symbol}.NS`;
   
-  // Generate realistic RSI (tends toward mean)
-  const rsi = Math.round(30 + Math.random() * 40 + (Math.random() > 0.7 ? (Math.random() - 0.5) * 30 : 0));
+  // Try multiple CORS proxies for reliability
+  const proxies = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=5d`)}`,
+    `https://corsproxy.io/?${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=5d`)}`,
+    `https://api.codetabs.com/v1/proxy?quest=https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=5d`
+  ];
   
-  // Volume ratio based on market activity
-  const volumeRatio = (0.6 + Math.random() * 1.5).toFixed(1);
+  console.log(`📈 ${symbol}: Fetching real-time data from Yahoo Finance...`);
   
-  // 52-week range position
-  const range52w = Math.round(20 + Math.random() * 60);
+  for (const proxyUrl of proxies) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      
+      if (!response.ok) continue;
+      
+      let data = await response.json();
+      
+      // Handle allorigins wrapper
+      if (data.contents) {
+        data = JSON.parse(data.contents);
+      }
+      
+      const result = data?.chart?.result?.[0];
+      if (!result?.meta?.regularMarketPrice) continue;
+      
+      const meta = result.meta;
+      const quote = result.indicators?.quote?.[0];
+      
+      const price = meta.regularMarketPrice;
+      const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+      const change = price - prevClose;
+      const changePercent = (change / prevClose) * 100;
+      
+      // Calculate RSI from recent closes
+      const closes = quote?.close?.filter(c => c !== null) || [];
+      let rsi = 50;
+      if (closes.length >= 15) {
+        let gains = 0, losses = 0;
+        for (let i = closes.length - 14; i < closes.length; i++) {
+          const diff = closes[i] - closes[i - 1];
+          if (diff > 0) gains += diff;
+          else losses -= diff;
+        }
+        const avgGain = gains / 14;
+        const avgLoss = losses / 14;
+        rsi = avgLoss === 0 ? 100 : Math.round(100 - (100 / (1 + avgGain / avgLoss)));
+      }
+      
+      // Volume ratio calculation
+      const volumes = quote?.volume?.filter(v => v !== null) || [];
+      const lastVol = volumes[volumes.length - 1] || 1000000;
+      const avgVol = volumes.length > 1 ? volumes.slice(0, -1).reduce((a, b) => a + b, 0) / (volumes.length - 1) : lastVol;
+      const volumeRatio = (lastVol / avgVol).toFixed(2);
+      
+      // 52-week data
+      const high52w = meta.fiftyTwoWeekHigh || price * 1.15;
+      const low52w = meta.fiftyTwoWeekLow || price * 0.85;
+      const range52w = Math.round(((price - low52w) / (high52w - low52w)) * 100);
+      
+      console.log(`✅ ${symbol}: ₹${price.toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%) - LIVE`);
+      
+      return {
+        symbol,
+        price,
+        change,
+        changePercent,
+        volume: lastVol,
+        volumeRatio,
+        rsi,
+        high52w,
+        low52w,
+        range52w,
+        isLive: true,
+        success: true
+      };
+    } catch (e) {
+      console.log(`Proxy failed for ${symbol}:`, e.message);
+      continue;
+    }
+  }
   
-  const high52w = Math.round(price * (1 + (100 - range52w) / 100) * 100) / 100;
-  const low52w = Math.round(price * (1 - range52w / 100) * 100) / 100;
-
-  return {
-    symbol: stock.symbol.replace('.NS', ''),
-    price: price,
-    change: change,
-    changePercent: changePercent,
-    volume: Math.round(1000000 + Math.random() * 5000000),
-    volumeRatio: volumeRatio,
-    rsi: rsi,
-    high52w: high52w,
-    low52w: low52w,
-    range52w: range52w,
-    success: true
-  };
+  // All proxies failed - return null (stock will be skipped)
+  console.log(`❌ ${symbol}: Failed to fetch real-time data from all sources`);
+  return null;
 };
 
 // Advanced ML Algorithm Configurations
@@ -141,19 +181,6 @@ const algorithms = {
   arima: { name: 'ARIMA', fullName: 'AutoRegressive Integrated Moving Avg', accuracy: 68.5, type: 'Time Series', color: '#a855f7' },
   prophet: { name: 'Prophet', fullName: 'Facebook Prophet', accuracy: 72.8, type: 'Time Series', color: '#0ea5e9' },
   ensemble: { name: 'Meta-Ensemble', fullName: 'Stacked Ensemble (All Models)', accuracy: 89.3, type: 'Meta-Learning', color: '#fbbf24' }
-};
-
-// Fetch stock data - with fallback to realistic simulation
-const fetchStockData = async (stock, index) => {
-  const startTime = Date.now();
-  const maxTotalTime = 8000; // Max 8 seconds total per stock
-  
-  // Skip API calls entirely and use simulated data for faster, reliable loading
-  // Yahoo Finance CORS proxies are often blocked or rate-limited
-  // For production, you'd use a backend server to fetch data
-  
-  console.log(`🔄 ${stock.symbol}: Using simulated data (faster loading)`);
-  return generateRealisticStockData(stock, index);
 };
 
 // Calculate RSI
@@ -1195,14 +1222,16 @@ const App = () => {
         </div>
         
         <div className="header-right">
-          <div className="market-status">
+          <div className={`market-status ${isMarketOpen() ? 'market-open' : 'market-closed'}`}>
             <span className="dot"></span>
-            {fetchStats.live > 0 ? 'Live Data' : 'Simulated'}
+            {isMarketOpen() ? 'Market Open' : 'Market Closed'}
           </div>
           {!isLoading && fetchStats.total > 0 && (
             <div className="fetch-stats">
-              <span className="stat-live" title="Live API data">✓ {fetchStats.live}</span>
-              <span className="stat-simulated" title="Simulated data">⟳ {fetchStats.simulated}</span>
+              <span className="stat-live" title="Real-time Yahoo Finance data">📈 {fetchStats.live}/{fetchStats.total} Live</span>
+              {fetchStats.simulated > 0 && (
+                <span className="stat-simulated" title="Failed to fetch">❌ {fetchStats.simulated} Failed</span>
+              )}
             </div>
           )}
           <div className="last-update">
