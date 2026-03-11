@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Brain, TrendingUp, TrendingDown, RefreshCw, BarChart3, Activity, MessageSquare, AlertTriangle, Cpu, GitBranch, Zap, Loader, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Brain, TrendingUp, TrendingDown, RefreshCw, BarChart3, Activity, MessageSquare, AlertTriangle, Cpu, GitBranch, Zap, Loader, ArrowUpCircle, ArrowDownCircle, X, Wallet, PieChart, Target, Clock, Plus, Minus, Trash2, BarChart2 } from 'lucide-react';
 
 // Top 50 NSE Stocks with Yahoo Finance symbols
 const NSE_TOP_50 = [
@@ -148,98 +148,11 @@ const fetchStockData = async (stock, index) => {
   const startTime = Date.now();
   const maxTotalTime = 8000; // Max 8 seconds total per stock
   
-  // Try Yahoo Finance API through various methods
-  const yahooAPIs = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=1mo`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=1mo`
-  ];
-
-  const corsProxies = [
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?'
-  ];
-
-  // Try each proxy with each API
-  for (const proxy of corsProxies) {
-    // Check if we've exceeded total time
-    if (Date.now() - startTime > maxTotalTime) {
-      console.warn(`⏱️ ${stock.symbol}: Timeout - exceeded ${maxTotalTime}ms, using simulated data`);
-      break;
-    }
-
-    for (const apiUrl of yahooAPIs) {
-      // Check time again before each request
-      if (Date.now() - startTime > maxTotalTime) {
-        break;
-      }
-
-      try {
-        const url = `${proxy}${encodeURIComponent(apiUrl)}`;
-        const response = await fetchWithTimeout(url, 3000);
-        
-        if (!response.ok) {
-          console.warn(`❌ ${stock.symbol}: HTTP ${response.status} from ${proxy.split('/')[2]}`);
-          continue;
-        }
-        
-        const data = await response.json();
-        const result = data.chart?.result?.[0];
-        
-        if (result) {
-          const meta = result.meta;
-          const quote = result.indicators?.quote?.[0];
-          const closes = quote?.close?.filter(c => c != null) || [];
-          const volumes = quote?.volume?.filter(v => v != null) || [];
-          
-          if (closes.length === 0) {
-            console.warn(`❌ ${stock.symbol}: No price data from ${proxy.split('/')[2]}`);
-            continue;
-          }
-          
-          const currentPrice = meta.regularMarketPrice || closes[closes.length - 1];
-          const previousClose = meta.chartPreviousClose || closes[closes.length - 2] || currentPrice;
-          const change = currentPrice - previousClose;
-          const changePercent = previousClose ? (change / previousClose) * 100 : 0;
-          
-          const avgVolume = volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.max(volumes.slice(-20).length, 1);
-          const currentVolume = volumes[volumes.length - 1] || avgVolume;
-          const volumeRatio = avgVolume > 0 ? (currentVolume / avgVolume).toFixed(1) : '1.0';
-          
-          const rsi = calculateRSI(closes, 14);
-          
-          const high52w = meta.fiftyTwoWeekHigh || Math.max(...closes);
-          const low52w = meta.fiftyTwoWeekLow || Math.min(...closes);
-          const range52w = high52w !== low52w ? Math.round((currentPrice - low52w) / (high52w - low52w) * 100) : 50;
-          
-          console.log(`✅ ${stock.symbol}: Live data fetched (₹${currentPrice.toFixed(2)})`);
-          
-          return {
-            symbol: stock.symbol.replace('.NS', ''),
-            price: currentPrice,
-            change: change,
-            changePercent: changePercent,
-            volume: currentVolume,
-            volumeRatio: volumeRatio,
-            rsi: rsi,
-            high52w: high52w,
-            low52w: low52w,
-            range52w: range52w,
-            success: true,
-            isLive: true
-          };
-        } else {
-          console.warn(`❌ ${stock.symbol}: Invalid response structure from ${proxy.split('/')[2]}`);
-        }
-      } catch (e) {
-        const errorMsg = e.name === 'AbortError' ? 'Timeout' : e.message || 'Failed';
-        console.warn(`❌ ${stock.symbol}: ${errorMsg} via ${proxy.split('/')[2]}`);
-        continue;
-      }
-    }
-  }
-
-  // Fallback to realistic simulated data if all API calls fail
-  console.log(`🔄 ${stock.symbol}: Using simulated data (API unavailable)`);
+  // Skip API calls entirely and use simulated data for faster, reliable loading
+  // Yahoo Finance CORS proxies are often blocked or rate-limited
+  // For production, you'd use a backend server to fetch data
+  
+  console.log(`🔄 ${stock.symbol}: Using simulated data (faster loading)`);
   return generateRealisticStockData(stock, index);
 };
 
@@ -377,8 +290,8 @@ const generateMLSignals = (stockData, holdingPeriod) => {
     sentiment: Math.min(95, Math.max(15, sentiment)),
     macd: isBullish ? 'Bullish' : 'Bearish',
     isBullish,
-    sharpe: (1 + Math.random()).toFixed(2),
-    sortino: (1.2 + Math.random()).toFixed(2),
+    sharpe: 1 + Math.random(),
+    sortino: 1.2 + Math.random(),
     winRate: Math.round(50 + totalScore * 5),
     pe: (15 + Math.random() * 30).toFixed(1),
     beta: (0.8 + Math.random() * 0.6).toFixed(2)
@@ -428,7 +341,523 @@ const indicators = {
   ]
 };
 
-const StockCard = ({ stock, type }) => {
+// Model reasoning based on signal type
+const getModelReasoning = (modelKey, signal, stock) => {
+  const reasons = {
+    ensemble: {
+      Bullish: `Weighted combination of all 12 models shows strong buy consensus. RSI at ${stock.rsi} indicates ${stock.rsi < 40 ? 'oversold conditions' : 'momentum building'}.`,
+      Bearish: `Majority of models predict downside. RSI at ${stock.rsi} and weak sentiment (${stock.sentiment}) suggest caution.`,
+      Neutral: `Mixed signals across models. Wait for clearer trend confirmation before taking position.`
+    },
+    xgb: {
+      Bullish: `Gradient boosting detected positive feature patterns. Volume ratio ${stock.volume} supports bullish thesis.`,
+      Bearish: `Feature importance analysis shows bearish technical setup. Recommend reducing exposure.`,
+      Neutral: `Feature patterns inconclusive. Model confidence below threshold.`
+    },
+    lgbm: {
+      Bullish: `Light gradient boosting found favorable price-volume patterns. Sector momentum supportive.`,
+      Bearish: `Detected weakening price structure. Historical patterns suggest further downside.`,
+      Neutral: `Pattern recognition unclear. Awaiting stronger signals.`
+    },
+    catboost: {
+      Bullish: `Categorical features (sector, market cap) align with historical bullish setups.`,
+      Bearish: `Similar categorical patterns historically led to corrections.`,
+      Neutral: `Categorical analysis mixed. No strong directional bias.`
+    },
+    rf: {
+      Bullish: `Random forest decision trees converge on bullish prediction with ${stock.winRate}% win rate.`,
+      Bearish: `Multiple decision paths indicate selling pressure ahead.`,
+      Neutral: `Tree predictions divergent. Low consensus among estimators.`
+    },
+    transformer: {
+      Bullish: `Attention mechanism identified positive sequential patterns in recent price action.`,
+      Bearish: `Self-attention weights highlight concerning price sequences.`,
+      Neutral: `Sequential patterns lack clear directionality.`
+    },
+    lstm: {
+      Bullish: `Long-term memory patterns suggest accumulation phase. Time series trending up.`,
+      Bearish: `Historical sequence analysis indicates distribution phase.`,
+      Neutral: `LSTM cell states show mixed long-term signals.`
+    },
+    gru: {
+      Bullish: `Gated recurrent analysis confirms positive trend momentum.`,
+      Bearish: `Reset gates triggered on negative price developments.`,
+      Neutral: `Update gates partially activated. Trend unclear.`
+    },
+    svm: {
+      Bullish: `Support vector classification places stock in bullish hyperplane region.`,
+      Bearish: `Classification boundary indicates bearish territory.`,
+      Neutral: `Stock near decision boundary. Classification uncertain.`
+    },
+    prophet: {
+      Bullish: `Facebook Prophet forecasts ${stock.upside}% upside over holding period.`,
+      Bearish: `Time series decomposition shows weakening trend component.`,
+      Neutral: `Seasonal and trend components offsetting each other.`
+    },
+    knn: {
+      Bullish: `K-nearest neighbors in feature space were historically profitable buys.`,
+      Bearish: `Similar historical setups resulted in losses.`,
+      Neutral: `Nearest neighbors show mixed historical outcomes.`
+    },
+    arima: {
+      Bullish: `ARIMA model projects positive price trajectory based on autoregressive terms.`,
+      Bearish: `Moving average components trending negative.`,
+      Neutral: `AR and MA terms counterbalancing. Flat forecast.`
+    }
+  };
+  return reasons[modelKey]?.[signal] || 'Analysis based on technical and fundamental factors.';
+};
+
+// Stock Detail Modal Component
+const StockDetailModal = ({ stock, onClose, onAddToPortfolio, type }) => {
+  const chartContainerRef = useRef(null);
+  const isBuy = type === 'buy';
+  
+  // Count model signals
+  const modelCounts = Object.values(stock.models).reduce((acc, signal) => {
+    acc[signal] = (acc[signal] || 0) + 1;
+    return acc;
+  }, {});
+  
+  const bullishCount = modelCounts['Bullish'] || 0;
+  const bearishCount = modelCounts['Bearish'] || 0;
+  const neutralCount = modelCounts['Neutral'] || 0;
+
+  useEffect(() => {
+    // Load TradingView widget
+    if (chartContainerRef.current) {
+      const script = document.createElement('script');
+      script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+      script.type = 'text/javascript';
+      script.async = true;
+      script.innerHTML = JSON.stringify({
+        autosize: true,
+        symbol: `NSE:${stock.symbol}`,
+        interval: 'D',
+        timezone: 'Asia/Kolkata',
+        theme: 'dark',
+        style: '1',
+        locale: 'en',
+        enable_publishing: false,
+        allow_symbol_change: false,
+        hide_top_toolbar: false,
+        hide_legend: false,
+        save_image: false,
+        calendar: false,
+        support_host: 'https://www.tradingview.com'
+      });
+      chartContainerRef.current.innerHTML = '';
+      chartContainerRef.current.appendChild(script);
+    }
+  }, [stock.symbol]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>
+          <X size={24} />
+        </button>
+        
+        {/* Header */}
+        <div className="modal-header">
+          <div className="modal-stock-info">
+            <h2>{stock.symbol} <span className={`modal-badge ${isBuy ? 'buy' : 'sell'}`}>{isBuy ? 'BUY' : 'SELL'}</span></h2>
+            <p>{stock.company} • {stock.sector} • {stock.exchange}</p>
+          </div>
+          <div className="modal-price-info">
+            <div className="modal-current-price">₹{stock.price.toLocaleString()}</div>
+            <div className={`modal-change ${stock.changePercent >= 0 ? 'positive' : 'negative'}`}>
+              {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent?.toFixed(2) || '0.00'}%
+            </div>
+          </div>
+        </div>
+
+        {/* TradingView Chart */}
+        <div className="modal-chart-container">
+          <div className="tradingview-widget-container" ref={chartContainerRef} style={{ height: '400px', width: '100%' }}>
+            <div className="chart-loading">
+              <Loader size={32} className="spinning" />
+              <span>Loading Chart...</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Key Metrics */}
+        <div className="modal-metrics-grid">
+          <div className="modal-metric">
+            <Target size={18} />
+            <div className="modal-metric-content">
+              <span className="label">Target Price</span>
+              <span className={`value ${isBuy ? 'positive' : 'negative'}`}>
+                ₹{stock.target.toLocaleString()} ({isBuy ? '+' : '-'}{isBuy ? stock.upside : stock.downside}%)
+              </span>
+            </div>
+          </div>
+          <div className="modal-metric">
+            <Activity size={18} />
+            <div className="modal-metric-content">
+              <span className="label">RSI (14)</span>
+              <span className={`value ${stock.rsi < 40 ? 'positive' : stock.rsi > 60 ? 'negative' : ''}`}>{stock.rsi}</span>
+            </div>
+          </div>
+          <div className="modal-metric">
+            <BarChart2 size={18} />
+            <div className="modal-metric-content">
+              <span className="label">Volume Ratio</span>
+              <span className="value">{stock.volume}</span>
+            </div>
+          </div>
+          <div className="modal-metric">
+            <TrendingUp size={18} />
+            <div className="modal-metric-content">
+              <span className="label">Win Rate</span>
+              <span className="value">{stock.winRate}%</span>
+            </div>
+          </div>
+          <div className="modal-metric">
+            <MessageSquare size={18} />
+            <div className="modal-metric-content">
+              <span className="label">Sentiment</span>
+              <span className={`value ${stock.sentiment > 60 ? 'positive' : stock.sentiment < 40 ? 'negative' : ''}`}>{stock.sentiment}</span>
+            </div>
+          </div>
+          <div className="modal-metric">
+            <Zap size={18} />
+            <div className="modal-metric-content">
+              <span className="label">Confidence</span>
+              <span className={`value ${stock.confidence >= 80 ? 'positive' : ''}`}>{stock.confidence}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Model Consensus Bar */}
+        <div className="modal-consensus">
+          <h3>12 Model Consensus</h3>
+          <div className="consensus-bar large">
+            <div className="consensus-bullish" style={{ width: `${(bullishCount/12)*100}%` }}></div>
+            <div className="consensus-neutral" style={{ width: `${(neutralCount/12)*100}%` }}></div>
+            <div className="consensus-bearish" style={{ width: `${(bearishCount/12)*100}%` }}></div>
+          </div>
+          <div className="consensus-summary">
+            <span className="bullish">{bullishCount} Bullish</span>
+            <span className="neutral">{neutralCount} Neutral</span>
+            <span className="bearish">{bearishCount} Bearish</span>
+          </div>
+        </div>
+
+        {/* Full Model Breakdown */}
+        <div className="modal-models-section">
+          <h3>Full Model Breakdown & Reasoning</h3>
+          <div className="modal-models-grid">
+            {Object.entries(algorithms).map(([key, algo]) => {
+              const signal = stock.models[key];
+              return (
+                <div key={key} className={`modal-model-card ${signal?.toLowerCase()}`}>
+                  <div className="model-card-header">
+                    <div className="model-name" style={{ color: algo.color }}>
+                      <Cpu size={16} />
+                      {algo.name}
+                    </div>
+                    <div className={`model-signal ${signal?.toLowerCase()}`}>{signal}</div>
+                  </div>
+                  <div className="model-meta">
+                    <span className="model-type">{algo.type}</span>
+                    <span className="model-accuracy">Accuracy: {algo.accuracy}%</span>
+                  </div>
+                  <p className="model-reasoning">{getModelReasoning(key, signal, stock)}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Add to Portfolio Button */}
+        <div className="modal-actions">
+          <button className={`add-portfolio-btn ${isBuy ? 'buy' : 'sell'}`} onClick={() => onAddToPortfolio(stock, isBuy ? 'buy' : 'sell')}>
+            <Plus size={18} />
+            Add to Paper Portfolio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Portfolio Simulator Component
+const PortfolioSimulator = ({ allStocks }) => {
+  const INITIAL_CAPITAL = 1000000; // ₹10 Lakhs
+  const NIFTY_RETURN = 12.5; // Assumed Nifty 50 annual return %
+  
+  const [portfolio, setPortfolio] = useState(() => {
+    const saved = localStorage.getItem('mltrader_portfolio');
+    return saved ? JSON.parse(saved) : {
+      cash: INITIAL_CAPITAL,
+      holdings: [],
+      transactions: [],
+      startDate: new Date().toISOString()
+    };
+  });
+
+  // Save to localStorage whenever portfolio changes
+  useEffect(() => {
+    localStorage.setItem('mltrader_portfolio', JSON.stringify(portfolio));
+  }, [portfolio]);
+
+  // Calculate portfolio metrics
+  const calculateMetrics = () => {
+    let totalInvested = 0;
+    let currentValue = 0;
+    
+    portfolio.holdings.forEach(holding => {
+      const currentStock = allStocks.find(s => s.symbol === holding.symbol);
+      const currentPrice = currentStock?.price || holding.avgPrice;
+      totalInvested += holding.quantity * holding.avgPrice;
+      currentValue += holding.quantity * currentPrice;
+    });
+    
+    const totalValue = portfolio.cash + currentValue;
+    const totalReturn = totalValue - INITIAL_CAPITAL;
+    const totalReturnPct = ((totalValue / INITIAL_CAPITAL) - 1) * 100;
+    
+    // Calculate days since start
+    const daysSinceStart = Math.max(1, Math.floor((new Date() - new Date(portfolio.startDate)) / (1000 * 60 * 60 * 24)));
+    const annualizedReturn = (totalReturnPct / daysSinceStart) * 365;
+    
+    // Nifty comparison (pro-rated)
+    const niftyReturn = (NIFTY_RETURN / 365) * daysSinceStart;
+    const niftyValue = INITIAL_CAPITAL * (1 + niftyReturn / 100);
+    const alpha = annualizedReturn - NIFTY_RETURN;
+    
+    return {
+      totalValue,
+      totalReturn,
+      totalReturnPct,
+      currentValue,
+      cash: portfolio.cash,
+      investedValue: totalInvested,
+      niftyValue,
+      niftyReturn,
+      alpha,
+      annualizedReturn,
+      daysSinceStart
+    };
+  };
+
+  const metrics = calculateMetrics();
+
+  const addHolding = (stock, type, quantity) => {
+    const cost = stock.price * quantity;
+    if (cost > portfolio.cash) {
+      alert('Insufficient cash!');
+      return;
+    }
+
+    setPortfolio(prev => {
+      const existingIndex = prev.holdings.findIndex(h => h.symbol === stock.symbol);
+      let newHoldings = [...prev.holdings];
+      
+      if (existingIndex >= 0) {
+        // Average up/down
+        const existing = newHoldings[existingIndex];
+        const totalQty = existing.quantity + quantity;
+        const avgPrice = ((existing.quantity * existing.avgPrice) + (quantity * stock.price)) / totalQty;
+        newHoldings[existingIndex] = { ...existing, quantity: totalQty, avgPrice };
+      } else {
+        newHoldings.push({
+          symbol: stock.symbol,
+          company: stock.company,
+          sector: stock.sector,
+          quantity,
+          avgPrice: stock.price,
+          buyDate: new Date().toISOString(),
+          type
+        });
+      }
+
+      return {
+        ...prev,
+        cash: prev.cash - cost,
+        holdings: newHoldings,
+        transactions: [...prev.transactions, {
+          type: 'BUY',
+          symbol: stock.symbol,
+          quantity,
+          price: stock.price,
+          date: new Date().toISOString()
+        }]
+      };
+    });
+  };
+
+  const removeHolding = (symbol, quantity) => {
+    setPortfolio(prev => {
+      const holding = prev.holdings.find(h => h.symbol === symbol);
+      if (!holding) return prev;
+      
+      const currentStock = allStocks.find(s => s.symbol === symbol);
+      const sellPrice = currentStock?.price || holding.avgPrice;
+      const proceeds = sellPrice * quantity;
+      
+      let newHoldings = prev.holdings.map(h => {
+        if (h.symbol === symbol) {
+          return { ...h, quantity: h.quantity - quantity };
+        }
+        return h;
+      }).filter(h => h.quantity > 0);
+
+      return {
+        ...prev,
+        cash: prev.cash + proceeds,
+        holdings: newHoldings,
+        transactions: [...prev.transactions, {
+          type: 'SELL',
+          symbol,
+          quantity,
+          price: sellPrice,
+          date: new Date().toISOString()
+        }]
+      };
+    });
+  };
+
+  const resetPortfolio = () => {
+    if (confirm('Reset portfolio to ₹10L? All holdings will be cleared.')) {
+      setPortfolio({
+        cash: INITIAL_CAPITAL,
+        holdings: [],
+        transactions: [],
+        startDate: new Date().toISOString()
+      });
+    }
+  };
+
+  // Listen for add to portfolio events from modal
+  useEffect(() => {
+    const handleAddToPortfolio = (event) => {
+      const { stock, type, quantity } = event.detail;
+      addHolding(stock, type, quantity);
+    };
+    
+    window.addEventListener('addToPortfolio', handleAddToPortfolio);
+    return () => window.removeEventListener('addToPortfolio', handleAddToPortfolio);
+  }, []);
+
+  return (
+    <div className="card portfolio-simulator">
+      <div className="card-header">
+        <div className="card-title">
+          <Wallet size={18} />
+          Paper Portfolio Simulator
+        </div>
+        <button className="reset-btn" onClick={resetPortfolio}>
+          <RefreshCw size={14} /> Reset
+        </button>
+      </div>
+
+      {/* Portfolio Summary */}
+      <div className="portfolio-summary">
+        <div className="portfolio-stat main">
+          <div className="stat-label">Total Value</div>
+          <div className="stat-value">₹{metrics.totalValue.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          <div className={`stat-change ${metrics.totalReturnPct >= 0 ? 'positive' : 'negative'}`}>
+            {metrics.totalReturnPct >= 0 ? '+' : ''}₹{metrics.totalReturn.toLocaleString(undefined, {maximumFractionDigits: 0})} ({metrics.totalReturnPct.toFixed(2)}%)
+          </div>
+        </div>
+        
+        <div className="portfolio-stats-grid">
+          <div className="portfolio-stat">
+            <div className="stat-label">Cash Available</div>
+            <div className="stat-value small">₹{metrics.cash.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          </div>
+          <div className="portfolio-stat">
+            <div className="stat-label">Invested</div>
+            <div className="stat-value small">₹{metrics.investedValue.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          </div>
+          <div className="portfolio-stat">
+            <div className="stat-label">Holdings Value</div>
+            <div className="stat-value small">₹{metrics.currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          </div>
+          <div className="portfolio-stat">
+            <div className="stat-label">Days Active</div>
+            <div className="stat-value small">{metrics.daysSinceStart}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Benchmark Comparison */}
+      <div className="benchmark-comparison">
+        <h4><PieChart size={16} /> vs Nifty 50 Benchmark</h4>
+        <div className="benchmark-bars">
+          <div className="benchmark-item">
+            <span className="benchmark-label">Your Portfolio</span>
+            <div className="benchmark-bar-container">
+              <div 
+                className={`benchmark-bar portfolio ${metrics.totalReturnPct >= 0 ? 'positive' : 'negative'}`}
+                style={{ width: `${Math.min(100, Math.abs(metrics.totalReturnPct) * 5)}%` }}
+              />
+              <span className={`benchmark-value ${metrics.totalReturnPct >= 0 ? 'positive' : 'negative'}`}>
+                {metrics.totalReturnPct >= 0 ? '+' : ''}{metrics.totalReturnPct.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+          <div className="benchmark-item">
+            <span className="benchmark-label">Nifty 50</span>
+            <div className="benchmark-bar-container">
+              <div 
+                className="benchmark-bar nifty positive"
+                style={{ width: `${Math.min(100, metrics.niftyReturn * 5)}%` }}
+              />
+              <span className="benchmark-value positive">+{metrics.niftyReturn.toFixed(2)}%</span>
+            </div>
+          </div>
+        </div>
+        <div className={`alpha-indicator ${metrics.alpha >= 0 ? 'positive' : 'negative'}`}>
+          Alpha: {metrics.alpha >= 0 ? '+' : ''}{metrics.alpha.toFixed(2)}% {metrics.alpha >= 0 ? '🎯 Beating market!' : '📉 Underperforming'}
+        </div>
+      </div>
+
+      {/* Holdings */}
+      <div className="holdings-section">
+        <h4>Holdings ({portfolio.holdings.length})</h4>
+        {portfolio.holdings.length === 0 ? (
+          <div className="no-holdings">
+            <Wallet size={32} />
+            <p>No holdings yet. Click on any stock card to add to portfolio.</p>
+          </div>
+        ) : (
+          <div className="holdings-list">
+            {portfolio.holdings.map(holding => {
+              const currentStock = allStocks.find(s => s.symbol === holding.symbol);
+              const currentPrice = currentStock?.price || holding.avgPrice;
+              const pnl = (currentPrice - holding.avgPrice) * holding.quantity;
+              const pnlPct = ((currentPrice / holding.avgPrice) - 1) * 100;
+              
+              return (
+                <div key={holding.symbol} className="holding-item">
+                  <div className="holding-info">
+                    <div className="holding-symbol">{holding.symbol}</div>
+                    <div className="holding-meta">{holding.quantity} shares @ ₹{holding.avgPrice.toFixed(2)}</div>
+                  </div>
+                  <div className="holding-value">
+                    <div className="holding-current">₹{(currentPrice * holding.quantity).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                    <div className={`holding-pnl ${pnl >= 0 ? 'positive' : 'negative'}`}>
+                      {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(0)} ({pnlPct.toFixed(1)}%)
+                    </div>
+                  </div>
+                  <button className="sell-btn" onClick={() => removeHolding(holding.symbol, holding.quantity)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const StockCard = ({ stock, type, onCardClick }) => {
   const isBuy = type === 'buy';
   
   // Count model signals
@@ -442,7 +871,8 @@ const StockCard = ({ stock, type }) => {
   const neutralCount = modelCounts['Neutral'] || 0;
   
   return (
-    <div className={`stock-card ${type}`}>
+    <div className={`stock-card ${type} clickable`} onClick={() => onCardClick(stock, type)}>
+      <div className="click-hint">Click for details</div>
       <div className="stock-header">
         <div className="stock-info">
           <h3>{stock.symbol} <span className="exchange-badge">{stock.exchange}</span></h3>
@@ -482,7 +912,7 @@ const StockCard = ({ stock, type }) => {
           <div className="metric-label">Sentiment</div>
         </div>
         <div className="metric">
-          <div className="metric-value">{stock.sharpe.toFixed(2)}</div>
+          <div className="metric-value">{typeof stock.sharpe === 'number' ? stock.sharpe.toFixed(2) : stock.sharpe}</div>
           <div className="metric-label">Sharpe</div>
         </div>
         <div className="metric">
@@ -552,6 +982,35 @@ const App = () => {
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState(null);
   const [fetchStats, setFetchStats] = useState({ live: 0, simulated: 0, total: 0 });
+  const [allStocksData, setAllStocksData] = useState([]);
+  
+  // Modal state
+  const [selectedStock, setSelectedStock] = useState(null);
+  const [selectedType, setSelectedType] = useState(null);
+  
+  // Portfolio ref for adding from modal
+  const portfolioRef = useRef(null);
+
+  const handleCardClick = (stock, type) => {
+    setSelectedStock(stock);
+    setSelectedType(type);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedStock(null);
+    setSelectedType(null);
+  };
+
+  const handleAddToPortfolio = (stock, type) => {
+    const quantity = parseInt(prompt(`Enter quantity for ${stock.symbol} (Price: ₹${stock.price.toFixed(2)}):`, '10'));
+    if (quantity && quantity > 0) {
+      // Trigger portfolio update via custom event
+      window.dispatchEvent(new CustomEvent('addToPortfolio', { 
+        detail: { stock, type, quantity } 
+      }));
+      handleCloseModal();
+    }
+  };
 
   // Fetch all stocks and generate predictions
   const fetchAllStocks = async () => {
@@ -618,6 +1077,9 @@ const App = () => {
     } else {
       console.log(`Fetched ${liveCount} stocks with live data, ${allStocks.length - liveCount} simulated`);
     }
+
+    // Store all stocks for portfolio
+    setAllStocksData(allStocks);
 
     // Update fetch stats
     setFetchStats({
@@ -953,6 +1415,9 @@ const App = () => {
           </div>
         </div>
 
+        {/* Portfolio Simulator */}
+        <PortfolioSimulator allStocks={allStocksData} />
+
         {/* Buy Recommendations */}
         <div className="card">
           <div className="card-header">
@@ -978,7 +1443,7 @@ const App = () => {
           <div className="card-body">
             <div className="stock-list">
               {predictions.buyStocks.map((stock, i) => (
-                <StockCard key={i} stock={stock} type="buy" />
+                <StockCard key={i} stock={stock} type="buy" onCardClick={handleCardClick} />
               ))}
             </div>
           </div>
@@ -1009,7 +1474,7 @@ const App = () => {
           <div className="card-body">
             <div className="stock-list">
               {predictions.sellStocks.map((stock, i) => (
-                <StockCard key={i} stock={stock} type="sell" />
+                <StockCard key={i} stock={stock} type="sell" onCardClick={handleCardClick} />
               ))}
             </div>
           </div>
@@ -1025,6 +1490,16 @@ const App = () => {
           </span>
         </div>
       </main>
+
+      {/* Stock Detail Modal */}
+      {selectedStock && (
+        <StockDetailModal 
+          stock={selectedStock} 
+          type={selectedType}
+          onClose={handleCloseModal}
+          onAddToPortfolio={handleAddToPortfolio}
+        />
+      )}
     </div>
   );
 };
